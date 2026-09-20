@@ -1,3 +1,4 @@
+import { toPaise } from '@ror/shared';
 import type {
   EarningsBar,
   Owner,
@@ -50,7 +51,19 @@ export const ME_RENTER: Renter = { name: 'Shivanshu Dixit', initials: 'SD', sinc
  * Booked date ranges are stored as day-offsets from today so the calendar always
  * shows a believable mix of open and blocked days, whenever the demo is run.
  */
-export const VEHICLES: readonly Vehicle[] = [
+/**
+ * Money literals below are whole RUPEES, because "daily: 1899" is what a human
+ * can check against a rate card and "daily: 189900" is not. Conversion to
+ * integer paise happens once, at the bottom of this file — the same boundary
+ * the API will convert at. Nothing downstream ever sees a rupee.
+ */
+type SeedVehicle = Omit<Vehicle, 'hourly' | 'daily' | 'deposit'> & {
+  readonly hourly: number;
+  readonly daily: number;
+  readonly deposit: number;
+};
+
+const VEHICLES_IN_RUPEES: readonly SeedVehicle[] = [
   {
     id: 'v1', type: 'car', name: 'Maruti Suzuki Swift VXi', tagline: 'Hatchback · 2022',
     plate: { code: 'DL 3C', series: 'AJ', num: '4471' },
@@ -174,6 +187,13 @@ export const VEHICLES: readonly Vehicle[] = [
   },
 ];
 
+export const VEHICLES: readonly Vehicle[] = VEHICLES_IN_RUPEES.map((v) => ({
+  ...v,
+  hourly: toPaise(v.hourly),
+  daily: toPaise(v.daily),
+  deposit: toPaise(v.deposit),
+}));
+
 export const byId = (id: string | undefined): Vehicle | undefined =>
   VEHICLES.find((v) => v.id === id);
 export const ownerOf = (v: Vehicle): Owner => OWNERS[v.ownerId] as Owner;
@@ -191,7 +211,7 @@ export const OWNER_VEHICLE_IDS: readonly string[] = ['v1', 'v5', 'v8', 'v10'];
 export const INITIAL_STATUS: Readonly<Record<string, VehicleStatus>> = { v1: 'rented', v5: 'available', v8: 'available', v10: 'maintenance' };
 
 /** Monthly earnings for the owner's bar chart, in INR. */
-export const EARNINGS: readonly EarningsBar[] = [
+const EARNINGS_IN_RUPEES: readonly { m: string; v: number }[] = [
   { m: 'Sep', v: 18400 }, { m: 'Oct', v: 24900 }, { m: 'Nov', v: 21300 },
   { m: 'Dec', v: 33800 }, { m: 'Jan', v: 27600 }, { m: 'Feb', v: 25100 },
   { m: 'Mar', v: 31200 }, { m: 'Apr', v: 29700 }, { m: 'May', v: 38400 },
@@ -199,7 +219,7 @@ export const EARNINGS: readonly EarningsBar[] = [
 ];
 
 /** Bookings received by the owner. `days` is an offset from today. */
-export const OWNER_BOOKINGS: readonly OwnerBooking[] = [
+const OWNER_BOOKINGS_IN_RUPEES: readonly (Omit<OwnerBooking, 'amount'> & { amount: number })[] = [
   { id: 'RA-8F42K9', vehicleId: 'v1',  renter: 'Aditya Bansal',  initials: 'AB', days: 0,  nights: 3, amount: 6297,  status: 'ongoing' },
   { id: 'RA-3M17Q2', vehicleId: 'v5',  renter: 'Tanvi Sethi',    initials: 'TS', days: 2,  nights: 2, amount: 2518,  status: 'upcoming' },
   { id: 'RA-9K55D1', vehicleId: 'v8',  renter: 'Harsh Vardhan',  initials: 'HV', days: 5,  nights: 1, amount: 707,   status: 'upcoming' },
@@ -209,7 +229,7 @@ export const OWNER_BOOKINGS: readonly OwnerBooking[] = [
 ];
 
 /** Bookings made by the signed-in renter. */
-export const RENTER_BOOKINGS: readonly RenterBooking[] = [
+const RENTER_BOOKINGS_IN_RUPEES: readonly (Omit<RenterBooking, 'amount'> & { amount: number })[] = [
   { id: 'RA-7Y21B5', vehicleId: 'v2',  start: 3,   nights: 3, amount: 12386, status: 'upcoming', rated: 0 },
   { id: 'RA-4Q66N3', vehicleId: 'v9',  start: 9,   nights: 2, amount: 1886,  status: 'upcoming', rated: 0 },
   { id: 'RA-5J13V0', vehicleId: 'v7',  start: 0,   nights: 1, amount: 2005,  status: 'ongoing',  rated: 0 },
@@ -218,6 +238,21 @@ export const RENTER_BOOKINGS: readonly RenterBooking[] = [
   { id: 'RA-6H72F1', vehicleId: 'v11', start: -23, nights: 3, amount: 882,   status: 'past',     rated: 0 },
   { id: 'RA-3N58G4', vehicleId: 'v5',  start: -34, nights: 5, amount: 7075,  status: 'past',     rated: 5 },
 ];
+
+export const EARNINGS: readonly EarningsBar[] = EARNINGS_IN_RUPEES.map((e) => ({
+  ...e,
+  v: toPaise(e.v),
+}));
+
+export const OWNER_BOOKINGS: readonly OwnerBooking[] = OWNER_BOOKINGS_IN_RUPEES.map((b) => ({
+  ...b,
+  amount: toPaise(b.amount),
+}));
+
+export const RENTER_BOOKINGS: readonly RenterBooking[] = RENTER_BOOKINGS_IN_RUPEES.map((b) => ({
+  ...b,
+  amount: toPaise(b.amount),
+}));
 
 export const REVIEWS: readonly Review[] = [
   { by: 'Aditya Bansal',  initials: 'AB', stars: 5, when: '2 weeks ago', text: 'Spotless vehicle and Rohan handed it over right on time at the metro gate. Pickup took under five minutes.' },

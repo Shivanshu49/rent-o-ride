@@ -10,7 +10,8 @@ import {
 } from '../data/seed';
 import type { VehicleStatus } from '../types';
 import { addDays, fmtTiny, today } from '../lib/dates';
-import { inr, inrShort } from '../lib/pricing';
+import { ZERO, sumPaise, type Paise } from '@ror/shared';
+import { inr, inrShort, ownerPayout } from '../lib/pricing';
 import { headlineSpec } from '../lib/specs';
 import { useStore } from '../state/store';
 
@@ -27,17 +28,19 @@ export default function OwnerDashboard() {
   const { statuses, setStatus, toast } = useStore();
 
   const totals = useMemo(() => {
-    const year = EARNINGS.reduce((s, e) => s + e.v, 0);
-    const thisMonth = EARNINGS.at(-1)?.v ?? 0;
-    const lastMonth = EARNINGS.at(-2)?.v ?? 0;
-    const growth = ((thisMonth - lastMonth) / lastMonth) * 100;
+    const year = sumPaise(EARNINGS.map((e) => e.v));
+    const thisMonth = EARNINGS.at(-1)?.v ?? ZERO;
+    const lastMonth = EARNINGS.at(-2)?.v ?? ZERO;
+    // A ratio of two amounts, not an amount. Guarded so an empty first month
+    // renders "0%" instead of NaN or Infinity.
+    const growth = lastMonth === 0 ? 0 : ((thisMonth - lastMonth) / lastMonth) * 100;
     const booked = UTIL_DAYS.filter((d) => d === 2).length;
     const part = UTIL_DAYS.filter((d) => d === 1).length;
     const util = Math.round(((booked + part * 0.5) / UTIL_DAYS.length) * 100);
     return { year, thisMonth, growth, util, booked };
   }, []);
 
-  const peak = Math.max(...EARNINGS.map((e) => e.v));
+  const peak = EARNINGS.reduce<Paise>((hi, e) => (e.v > hi ? e.v : hi), ZERO);
   const vehicles = OWNER_VEHICLE_IDS.map(requireById);
   const live = vehicles.filter((v) => statuses[v.id] !== 'maintenance').length;
 
@@ -205,7 +208,7 @@ export default function OwnerDashboard() {
                     </td>
                     <td className="mono" style={{ fontSize: 12.5 }}>{fmtTiny(start)} — {fmtTiny(end)}</td>
                     <td className="mono">{b.nights}</td>
-                    <td className="mono" style={{ fontWeight: 600 }}>{inr(Math.round(b.amount * 0.85))}</td>
+                    <td className="mono" style={{ fontWeight: 600 }}>{inr(ownerPayout(b.amount))}</td>
                     <td><StatusPill status={b.status} /></td>
                   </tr>
                 );

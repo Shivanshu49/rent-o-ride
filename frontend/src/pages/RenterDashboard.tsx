@@ -8,6 +8,7 @@ import {
 import { ME_RENTER, RENTER_BOOKINGS, ownerOf, requireById } from '../data/seed';
 import type { BookingStatus, MadeBooking, RenterBooking } from '../types';
 import { addDays, fmtShort, fmtTiny, relativeDay, today } from '../lib/dates';
+import { sumPaise, type Paise } from '@ror/shared';
 import { inr } from '../lib/pricing';
 import { useStore } from '../state/store';
 
@@ -20,7 +21,7 @@ interface Trip {
   id: string;
   vehicleId: string;
   nights: number;
-  amount: number;
+  amount: Paise;
   status: BookingStatus;
   startDate: Date;
   endDate: Date;
@@ -55,7 +56,7 @@ export default function RenterDashboard() {
     .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
   const past = all.filter((b) => b.status === 'past');
 
-  const spent = all.reduce((s, b) => s + b.amount, 0);
+  const spent = sumPaise(all.map((b) => b.amount));
   const unrated = past.filter((b) => !ratings[b.id]).length;
 
   return (

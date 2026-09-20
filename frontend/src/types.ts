@@ -1,12 +1,16 @@
 /**
  * Shapes the UI renders.
  *
- * One deliberate wart: amounts here are whole RUPEES, because the prototype's
- * seed data is. The API speaks integer paise (see @ror/shared/money), so as each
- * phase wires a screen to the real API the type it uses moves to Paise and the
- * seed entry behind it goes away. Anything still typed `number` and named like
- * money below is therefore a to-do list of screens not yet on the API.
+ * Every amount is `Paise` — an integer, branded so a stray float is a compile
+ * error rather than a rounding bug found in production. Money is formatted to
+ * "₹1,899" exactly once, at render, by inr()/inrShort(). Nothing in state, in
+ * props or in a comparison is ever a rupee float.
+ *
+ * The seed still writes its literals in whole rupees because that is what is
+ * readable in a data file; data/seed.ts converts at the boundary, which is the
+ * same thing the API layer will do in Phase 5.
  */
+import type { Paise } from '@ror/shared';
 
 export type VehicleType = 'car' | 'bike' | 'scooter' | 'bicycle';
 export type VehicleStatus = 'available' | 'rented' | 'maintenance';
@@ -59,8 +63,8 @@ export interface Vehicle {
   readonly city: string;
   readonly area: string;
   readonly distance: number;
-  readonly hourly: number;
-  readonly daily: number;
+  readonly hourly: Paise;
+  readonly daily: Paise;
   readonly rating: number;
   readonly reviews: number;
   readonly trips: number;
@@ -71,13 +75,13 @@ export interface Vehicle {
   readonly specs: Readonly<Record<string, string | number>>;
   readonly features: readonly string[];
   readonly rules: string;
-  readonly deposit: number;
+  readonly deposit: Paise;
   readonly booked: readonly BookedRange[];
 }
 
 export interface EarningsBar {
   readonly m: string;
-  readonly v: number;
+  readonly v: Paise;
 }
 
 export interface OwnerBooking {
@@ -88,7 +92,7 @@ export interface OwnerBooking {
   /** Start, as a day-offset from today. Negative is in the past. */
   readonly days: number;
   readonly nights: number;
-  readonly amount: number;
+  readonly amount: Paise;
   readonly status: BookingStatus;
 }
 
@@ -98,7 +102,7 @@ export interface RenterBooking {
   /** Start, as a day-offset from today. */
   readonly start: number;
   readonly nights: number;
-  readonly amount: number;
+  readonly amount: Paise;
   readonly status: BookingStatus;
   /** Stars the renter left, 0 when not yet rated. */
   readonly rated: number;
@@ -124,19 +128,20 @@ export interface AdvanceDiscount {
 
 export interface Quote {
   readonly nights: number;
-  readonly base: number;
+  readonly base: Paise;
   readonly demand: Demand;
-  readonly surge: number;
-  readonly fare: number;
+  readonly surge: Paise;
+  readonly fare: Paise;
   readonly daysAhead: number;
   readonly advance: AdvanceDiscount;
-  readonly discount: number;
-  readonly net: number;
-  readonly fee: number;
-  readonly gst: number;
-  readonly total: number;
-  readonly deposit: number;
-  readonly payable: number;
+  readonly discount: Paise;
+  readonly net: Paise;
+  readonly fee: Paise;
+  readonly gst: Paise;
+  readonly total: Paise;
+  /** Refundable security amount. Never in the taxable base. */
+  readonly deposit: Paise;
+  readonly payable: Paise;
 }
 
 /** The booking being assembled across dates -> pay -> confirm. */
@@ -156,7 +161,7 @@ export interface MadeBooking {
   readonly end: Date;
   readonly nights: number;
   readonly slot: string;
-  readonly amount: number;
+  readonly amount: Paise;
   readonly method: string;
   readonly madeAt: Date;
 }

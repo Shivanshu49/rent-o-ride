@@ -5,6 +5,7 @@ import MapPanel from '../components/MapPanel';
 import { Calendar as CalIcon, Check, Pin, Sliders, TYPE_ICON, X, Zap } from '../components/Icons';
 import { CITIES, TYPES, VEHICLES } from '../data/seed';
 import { fmtTiny } from '../lib/dates';
+import { paise, toPaise, type Paise } from '@ror/shared';
 import { demandForRange, inr } from '../lib/pricing';
 import { useStore } from '../state/store';
 import type { Vehicle, VehicleType } from '../types';
@@ -19,7 +20,12 @@ const SORTS: readonly (readonly [SortKey, string])[] = [
   ['rating', 'Top rated'],
 ];
 
-const PRICE_MAX = 4500;
+// The slider carries paise, not rupees: its own value is state, and state is
+// paise. Comparing a rupee slider against a paise rate is the exact silent
+// mismatch that would return an empty result set with no error anywhere.
+const PRICE_MIN = toPaise(249);
+const PRICE_MAX = toPaise(4500);
+const PRICE_STEP = toPaise(50);
 const DIST_MAX = 6;
 
 export default function Search() {
@@ -31,7 +37,7 @@ export default function Search() {
     return t ? [t] : [];
   });
   const [cityFilter, setCityFilter] = useState(params.get('city') ?? city);
-  const [maxPrice, setMaxPrice] = useState(PRICE_MAX);
+  const [maxPrice, setMaxPrice] = useState<Paise>(PRICE_MAX);
   const [maxDist, setMaxDist] = useState(DIST_MAX);
   const [evOnly, setEvOnly] = useState(false);
   const [sort, setSort] = useState<SortKey>('recommended');
@@ -160,8 +166,8 @@ export default function Search() {
 
           <div className="filter-block">
             <div className="filter-title">Price per day</div>
-            <input className="slider" type="range" min="249" max={PRICE_MAX} step="50"
-              value={maxPrice} onChange={(e) => setMaxPrice(+e.target.value)} aria-label="Maximum price per day" />
+            <input className="slider" type="range" min={PRICE_MIN} max={PRICE_MAX} step={PRICE_STEP}
+              value={maxPrice} onChange={(e) => setMaxPrice(paise(+e.target.value))} aria-label="Maximum price per day" />
             <div className="slider-val">
               <span>₹249</span>
               <span style={{ color: 'var(--ink)', fontWeight: 600 }}>up to {inr(maxPrice)}</span>

@@ -6,6 +6,7 @@ import { Plate } from '../components/Bits';
 import { Bank, Card, ChevL, Lock, Phone, Wallet } from '../components/Icons';
 import { byId } from '../data/seed';
 import { fmtShort } from '../lib/dates';
+import { toPaise } from '@ror/shared';
 import { inr, makeBookingId, quote } from '../lib/pricing';
 import { useStore } from '../state/store';
 
@@ -20,7 +21,10 @@ const METHODS: readonly { id: string; icon: ComponentType<IconProps>; title: str
   { id: 'wallet', icon: Wallet, title: 'Wallet', sub: 'Paytm, Amazon Pay, Mobikwik' },
 ];
 
-const UPI_APPS = ['GPay', 'PhonePe', 'Paytm', 'BHIM'];
+const UPI_APPS: readonly string[] = ['GPay', 'PhonePe', 'Paytm', 'BHIM'];
+
+/** Mock wallet balance, so the split-payment notice has a number to show. */
+const WALLET_BALANCE = toPaise(2480);
 
 /**
  * Guard and screen are separate components on purpose: the screen can then take
@@ -188,7 +192,7 @@ function PayScreen({ draft, vehicle }: { draft: BookingDraft; vehicle: Vehicle }
               <div style={{ padding: '16px 20px 4px' }}>
                 <div className="deposit-note">
                   <Wallet size={15} style={{ flex: 'none', marginTop: 1 }} />
-                  <span>Your Paytm wallet balance is {inr(2480)}. The remainder will be charged to UPI.</span>
+                  <span>Your Paytm wallet balance is {inr(WALLET_BALANCE)}. The remainder will be charged to UPI.</span>
                 </div>
               </div>
             )}

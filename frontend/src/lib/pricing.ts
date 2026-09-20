@@ -1,23 +1,57 @@
+import { addPaise, mulPaise, paise, subPaise, toPaise, toRupees, type Paise } from '@ror/shared';
+import type { AdvanceDiscount, Demand, Quote, Vehicle } from '../types';
+import { diffDays } from './dates';
+
 /**
- * Pricing model.
+ * Prototype pricing.
  *
- * base            nightly rate x nights
- * demand          weekend and near-term pickups cost more (surge, shown to the renter)
- * advance saver   booking a week or more ahead earns a discount
- * platform fee    5%, floor of Rs 29
- * GST             18% on the fare plus fee
- * deposit         refundable, quoted separately from the fare
+ * Deliberately simple: a weekday demand curve, an advance discount, a platform
+ * fee and GST. Phase 5 replaces all of it with the real engine in shared/ —
+ * slab selection, D/S surge with EMA smoothing, occupancy, lead time, seasonal
+ * share and the guardrail clamp — and this file goes away. Do not extend it.
+ *
+ * What is NOT prototype-grade, and must survive into Phase 5: every amount is
+ * integer paise, every multiplication goes through mulPaise so it rounds to a
+ * whole paise immediately, and no float is ever carried across two operations.
  */
 
-import type { AdvanceDiscount, Demand, Quote, Vehicle } from '../types';
-import { addDays, diffDays } from './dates';
+/** Platform commission withheld from the owner's payout. Phase 10 reads the
+ *  real per-owner value from owner_profiles.commission_bps. */
+export const OWNER_COMMISSION_BPS = 1500;
 
-export const inr = (n: number): string =>
-  '₹' + Math.round(n).toLocaleString('en-IN');
+const PLATFORM_FEE_RATE = 0.05;
+const PLATFORM_FEE_FLOOR = toPaise(29);
+const GST_RATE = 0.18;
 
-/** Compact form for map pins and dense tables: Rs 1.9k */
-export const inrShort = (n: number): string =>
-  n >= 1000 ? '₹' + (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k' : '₹' + n;
+const INR_WHOLE = new Intl.NumberFormat('en-IN', {
+  style: 'currency',
+  currency: 'INR',
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
+const INR_EXACT = new Intl.NumberFormat('en-IN', {
+  style: 'currency',
+  currency: 'INR',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/**
+ * The only place an amount becomes a string. Whole rupees render without a
+ * decimal tail, because "₹1,899.00" on every card is noise; a genuine part-rupee
+ * amount shows its paise rather than being quietly rounded away.
+ */
+export const inr = (p: Paise): string =>
+  p % 100 === 0 ? INR_WHOLE.format(toRupees(p)) : INR_EXACT.format(toRupees(p));
+
+/** Compact form for map pins and dense tables: "₹1.9k". */
+export function inrShort(p: Paise): string {
+  const rupees = Math.round(toRupees(p));
+  if (rupees < 1000) return `₹${rupees}`;
+  const thousands = (rupees / 1000).toFixed(rupees >= 10_000 ? 0 : 1).replace(/\.0$/, '');
+  return `₹${thousands}k`;
+}
 
 /** Fri/Sat/Sun run hot; Thursday is a shoulder day. */
 export function demandFor(date: Date): Demand {
@@ -32,7 +66,7 @@ export function demandFor(date: Date): Demand {
 export function demandForRange(start: Date, nights: number): Demand {
   let best: Demand = { mult: 1.0, label: 'Standard rate' };
   for (let i = 0; i < Math.max(1, nights); i++) {
-    const d = demandFor(addDays(start, i));
+    const d = demandFor(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
     if (d.mult > best.mult) best = d;
   }
   return best;
@@ -45,37 +79,38 @@ export function advanceDiscount(daysAhead: number): AdvanceDiscount {
   return { rate: 0, label: null };
 }
 
-/**
- * Full price breakdown for a booking.
- *
- * Prototype-grade on purpose: rupees, floats, and a demand curve driven by the
- * day of the week. Phase 5 replaces all of it with the real engine in
- * packages/domain — integer paise, D/S surge, occupancy, lead time and a
- * guardrail clamp — and this file goes away. Do not extend it.
- */
+/** Full price breakdown for a booking. Every line is integer paise. */
 export function quote(vehicle: Vehicle, start: Date, nights: number): Quote {
   const n = Math.max(1, nights || 1);
-  const base = vehicle.daily * n;
+  const base = mulPaise(vehicle.daily, n);
   const demand = demandForRange(start, n);
-  const surge = Math.round(base * (demand.mult - 1));
-  const fare = base + surge;
+  const surge = mulPaise(base, demand.mult - 1);
+  const fare = addPaise(base, surge);
 
   const daysAhead = Math.max(0, diffDays(new Date(), start));
-  const adv = advanceDiscount(daysAhead);
-  const discount = Math.round(fare * adv.rate);
+  const advance = advanceDiscount(daysAhead);
+  const discount = mulPaise(fare, advance.rate);
 
-  const net = fare - discount;
-  const fee = Math.max(29, Math.round(net * 0.05));
-  const gst = Math.round((net + fee) * 0.18);
-  const total = net + fee + gst;
+  const net = subPaise(fare, discount);
+  const fee = paise(Math.max(PLATFORM_FEE_FLOOR, mulPaise(net, PLATFORM_FEE_RATE)));
+
+  // GST applies to the service, never to the refundable deposit. Folding the
+  // deposit into the taxable base is a real compliance bug, not a rounding one.
+  const gst = mulPaise(addPaise(net, fee), GST_RATE);
+  const total = addPaise(addPaise(net, fee), gst);
 
   return {
     nights: n, base, demand, surge, fare,
-    daysAhead, advance: adv, discount,
+    daysAhead, advance, discount,
     net, fee, gst, total,
     deposit: vehicle.deposit,
     payable: total,
   };
+}
+
+/** What the owner actually receives, after the platform's commission. */
+export function ownerPayout(gross: Paise, commissionBps = OWNER_COMMISSION_BPS): Paise {
+  return subPaise(gross, mulPaise(gross, commissionBps / 10_000));
 }
 
 /** Booking id in the format the confirmation screen and QR both carry. */
