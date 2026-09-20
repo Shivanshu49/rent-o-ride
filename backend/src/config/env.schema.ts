@@ -29,6 +29,8 @@ export const envSchema = z.object({
   DATABASE_URL: connectionUrl('postgresql', 'postgres'),
   /** Unpooled connection for migrations and the admin client. */
   DIRECT_URL: connectionUrl('postgresql', 'postgres'),
+  /** Used by `prisma migrate dev` only. Never opened by the running API. */
+  SHADOW_DATABASE_URL: connectionUrl('postgresql', 'postgres').optional(),
   REDIS_URL: connectionUrl('redis', 'rediss'),
 
   SUPABASE_URL: connectionUrl('http', 'https'),

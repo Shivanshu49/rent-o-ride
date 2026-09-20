@@ -74,8 +74,34 @@ that catches the `WHERE` clause someone forgets.
 | Phase | Deliverable | State |
 |---|---|---|
 | 0 | Workspaces, Nest+Fastify booting, dual Prisma clients, money module, boundary checks, CI | done |
-| 1 | Schema, exclusion constraint, PostGIS, session-var RLS, seed | next |
-| 2–12 | See the build guide | pending |
+| 1 | Schema, exclusion constraint, PostGIS, session-var RLS, seed | done |
+| 2 | Auth module, global JwtAuthGuard, RolesGuard, KYC scaffold | next |
+| 3–12 | See the build guide | pending |
+
+### What Phase 1 guarantees, and where it is proved
+
+| Guarantee | Enforced by | Test |
+|---|---|---|
+| No double booking, even under true concurrency | `bookings_no_overlap`, `EXCLUDE USING gist` | two open transactions; the second blocks on the predicate lock, then fails `23P01` |
+| Back-to-back rentals are allowed | `'[)'` half-open range | a booking starting exactly when another ends succeeds |
+| Cancelling frees the slot instantly | the constraint is PARTIAL on `status` | rebook the same window immediately after cancelling |
+| `period` can never drift from the dates | `GENERATED ALWAYS ... STORED` | an INSERT naming `period` fails `428C9` |
+| A renter sees only their own bookings | RLS via `app_user_id()` | connected as `app_role`, asserted non-superuser and non-BYPASSRLS first |
+| Identity does not leak between pooled requests | `set_config(..., true)` | the setting is gone in the next transaction |
+| Distance is metres on the spheroid | `geography(Point,4326)` + GIST | CP to Noida Sector 18 measures ~13 km |
+
+### Migrations
+
+Do **not** run `prisma migrate dev` here. Prisma reads a STORED GENERATED
+column's expression as an ordinary DEFAULT and proposes
+`ALTER COLUMN period DROP DEFAULT`, which Postgres rejects outright — nothing
+can be silently destroyed, but the migration will not apply. Use:
+
+```bash
+npm run db:diff --workspace=backend     # incremental DDL, review and save it
+npm run db:migrate --workspace=backend  # prisma migrate deploy
+npm run db:seed --workspace=backend     # runs as the owner, see the file header
+```
 
 ## Deviations from the build guide
 

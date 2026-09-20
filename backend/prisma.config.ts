@@ -14,5 +14,12 @@ export default defineConfig({
   },
   datasource: {
     url: env('DIRECT_URL'),
+    // An explicit shadow database on the same PostGIS container, rather than
+    // letting Prisma create one: a shadow DB Prisma creates on a managed
+    // Postgres often cannot CREATE EXTENSION postgis, and `migrate dev` then
+    // fails on a migration that is perfectly valid against the real database.
+    // Created by docker/initdb/01-shadow.sql. Prisma resets its schema on every
+    // run; the extensions survive because they live outside the public schema.
+    shadowDatabaseUrl: env('SHADOW_DATABASE_URL'),
   },
 });

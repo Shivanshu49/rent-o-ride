@@ -1,12 +1,18 @@
 // Rent-O-Ride data model.
 //
-// Conventions, enforced by review and by the Phase 12 CI checks:
+// Conventions, enforced by review and by the CI checks in Phase 12:
 //   - money is always Int, always named *_paise (rule 0.2.1: no Float money)
 //   - timestamps are always DateTime @db.Timestamptz(6), stored UTC, rendered IST
 //   - columns Prisma cannot express (tstzrange, geography) are Unsupported(...)
-//     so migrations keep them instead of dropping them; they are read via $queryRaw
+//     and OPTIONAL, so migrations keep them and the generated client never tries
+//     to write them. They are read and written via $queryRaw.
 //
-// Connection URLs live in prisma.config.ts (Prisma 7 moved them out of the schema).
+// The guarantees that matter — no double booking, geospatial search, row-level
+// security — live in prisma/migrations/, not here. Prisma cannot express
+// EXCLUDE USING gist, GENERATED ALWAYS, or a CREATE POLICY, so that migration is
+// hand-written and is the real source of truth for them.
+//
+// Connection URLs live in prisma.config.ts (Prisma 7 moved them out of schema).
 
 generator client {
   provider = "prisma-client-js"
@@ -15,6 +21,463 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  // postgis / btree_gist / pgcrypto are created by the hand-written
-  // migration in prisma/migrations, not by the postgresqlExtensions preview.
+  // postgis / btree_gist / pgcrypto are created by the hand-written migration,
+  // not by the postgresqlExtensions preview feature.
+}
+
+// ---------------------------------------------------------------- enums
+
+enum VehicleType {
+  CAR
+  BIKE
+  BICYCLE
+  SCOOTER
+}
+
+enum VehicleStatus {
+  DRAFT
+  AVAILABLE
+  RENTED
+  MAINTENANCE
+  SUSPENDED
+}
+
+enum BookingStatus {
+  QUOTED
+  PENDING_PAYMENT
+  CONFIRMED
+  ONGOING
+  COMPLETED
+  CANCELLED
+  EXPIRED
+  DISPUTED
+}
+
+enum PaymentStatus {
+  CREATED
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
+enum UserRole {
+  RENTER
+  OWNER
+  ADMIN
+}
+
+enum KycStatus {
+  NONE
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum SubjectType {
+  VEHICLE
+  OWNER
+  RENTER
+}
+
+enum DocType {
+  DRIVING_LICENCE
+  ID_PROOF
+  ADDRESS_PROOF
+  SELFIE
+}
+
+enum CouponKind {
+  PERCENT
+  FLAT
+}
+
+// ---------------------------------------------------------------- identity
+
+model User {
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Supabase auth.users.id. Unique so the bootstrap race in Phase 2 resolves
+  /// to a constraint violation we can catch and re-read, not a duplicate row.
+  authUserId String @unique @map("auth_user_id") @db.Uuid
+  fullName   String @map("full_name")
+  phone      String @unique
+  email      String? @unique
+  role       UserRole  @default(RENTER)
+  kycStatus  KycStatus @default(NONE) @map("kyc_status")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  ownerProfile OwnerProfile?
+  vehicles     Vehicle[]
+  bookings     Booking[]
+  reviews      Review[]
+  kycDocuments KycDocument[]
+  riskFlags    RiskFlag[]
+  referralsMade     Referral[] @relation("referrer")
+  referralsRedeemed Referral[] @relation("redeemer")
+
+  @@map("users")
+}
+
+model OwnerProfile {
+  userId          String  @id @map("user_id") @db.Uuid
+  payoutAccountRef String? @map("payout_account_ref")
+  /// Platform commission in basis points. 1800 = 18%.
+  commissionBps   Int     @default(1800) @map("commission_bps")
+  isVerified      Boolean @default(false) @map("is_verified")
+  /// 0-100, computed from cancellations, late handovers and lost disputes.
+  reliability     Int     @default(100)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("owner_profiles")
+}
+
+// ---------------------------------------------------------------- inventory
+
+model Vehicle {
+  id        String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId   String        @map("owner_id") @db.Uuid
+  type      VehicleType
+  brand     String
+  model     String
+  regNumber String        @map("reg_number")
+  year      Int
+  /// Type-specific, validated by the Zod discriminated union in shared/.
+  specs     Json          @default("{}")
+  images    String[]      @default([])
+  city      String
+  /// geography(Point,4326). Written and read via $queryRaw with ST_MakePoint.
+  location  Unsupported("geography(Point, 4326)")?
+  status    VehicleStatus @default(DRAFT)
+  minHours  Int           @default(1) @map("min_hours")
+  depositPaise      Int @default(0) @map("deposit_paise")
+  includedKmPerDay  Int @default(0) @map("included_km_per_day")
+  perExtraKmPaise   Int @default(0) @map("per_extra_km_paise")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  owner     User       @relation(fields: [ownerId], references: [id])
+  rateCards RateCard[]
+  blackouts Blackout[]
+  bookings  Booking[]
+  rating    VehicleRating?
+
+  // Declared here so `prisma migrate diff` knows the GIST index exists and does
+  // not propose dropping it. The index itself is created by the migration.
+  @@index([location], map: "vehicles_location_gix", type: Gist)
+  // vehicles_type_status_idx is created PARTIAL (WHERE deleted_at IS NULL) in
+  // the migration — Prisma has no syntax for that, and the non-partial version
+  // would be a redundant second index on the same columns.
+  @@index([city, type])
+  @@index([ownerId])
+  @@map("vehicles")
+}
+
+model RateCard {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  vehicleId     String   @map("vehicle_id") @db.Uuid
+  hourlyPaise   Int      @map("hourly_paise")
+  dailyPaise    Int      @map("daily_paise")
+  /// Bicycles may leave weekly and monthly null — they are day-rate rentals.
+  weeklyPaise   Int?     @map("weekly_paise")
+  monthlyPaise  Int?     @map("monthly_paise")
+  effectiveFrom DateTime @default(now()) @map("effective_from") @db.Timestamptz(6)
+  effectiveTo   DateTime? @map("effective_to") @db.Timestamptz(6)
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, effectiveFrom])
+  @@map("rate_cards")
+}
+
+model Blackout {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  vehicleId String @map("vehicle_id") @db.Uuid
+  startAt   DateTime @map("start_at") @db.Timestamptz(6)
+  endAt     DateTime @map("end_at") @db.Timestamptz(6)
+  /// tstzrange(start_at, end_at, '[)'), GENERATED ALWAYS ... STORED.
+  /// Optional here so the generated client never names it in an INSERT —
+  /// Postgres rejects any INSERT that does.
+  period    Unsupported("tstzrange")?
+  reason    String?
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+  @@map("blackouts")
+}
+
+// ---------------------------------------------------------------- bookings
+
+model Booking {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  vehicleId String @map("vehicle_id") @db.Uuid
+  renterId  String @map("renter_id") @db.Uuid
+  startAt   DateTime @map("start_at") @db.Timestamptz(6)
+  endAt     DateTime @map("end_at") @db.Timestamptz(6)
+  /// tstzrange(start_at, end_at, '[)'), GENERATED ALWAYS ... STORED.
+  /// This column plus bookings_no_overlap is what makes double booking
+  /// impossible. Optional for the same reason as blackouts.period.
+  period    Unsupported("tstzrange")?
+  status    BookingStatus @default(QUOTED)
+  /// The full PriceBreakdown the renter agreed to. The price shown is the
+  /// price charged; this row is the evidence.
+  quoteSnapshot Json @map("quote_snapshot") @default("{}")
+  totalPaise   Int @map("total_paise")
+  depositPaise Int @default(0) @map("deposit_paise")
+  idempotencyKey String? @map("idempotency_key")
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  confirmedAt DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz(6)
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+  renter  User    @relation(fields: [renterId], references: [id])
+  trip     Trip?
+  payments Payment[]
+  reviews  Review[]
+  riskFlags RiskFlag[]
+
+  @@index([renterId, createdAt])
+  @@index([vehicleId, startAt])
+  @@index([status, expiresAt])
+  @@map("bookings")
+}
+
+model Trip {
+  bookingId      String    @id @map("booking_id") @db.Uuid
+  pickedUpAt     DateTime? @map("picked_up_at") @db.Timestamptz(6)
+  returnedAt     DateTime? @map("returned_at") @db.Timestamptz(6)
+  startOdo       Int?      @map("start_odo")
+  endOdo         Int?      @map("end_odo")
+  pickupPhotos   String[]  @default([]) @map("pickup_photos")
+  returnPhotos   String[]  @default([]) @map("return_photos")
+  lateFeePaise   Int       @default(0) @map("late_fee_paise")
+  kmOveragePaise Int       @default(0) @map("km_overage_paise")
+  damagePaise    Int       @default(0) @map("damage_paise")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("trips")
+}
+
+// ---------------------------------------------------------------- money
+
+model Payment {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId    String @map("booking_id") @db.Uuid
+  provider     String @default("razorpay")
+  orderId      String @map("order_id")
+  paymentId    String? @unique @map("payment_id")
+  amountPaise  Int    @map("amount_paise")
+  status       PaymentStatus @default(CREATED)
+  method       String?
+  capturedAt   DateTime? @map("captured_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Provider payload, kept for reconciliation. Redacted before it reaches a log.
+  raw          Json @default("{}")
+
+  booking Booking  @relation(fields: [bookingId], references: [id])
+  refunds Refund[]
+
+  @@index([bookingId])
+  @@index([status, createdAt])
+  @@map("payments")
+}
+
+model Refund {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paymentId   String @map("payment_id") @db.Uuid
+  refundId    String? @unique @map("refund_id")
+  amountPaise Int    @map("amount_paise")
+  reason      String?
+  status      RefundStatus @default(PENDING)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+
+  @@index([paymentId])
+  @@map("refunds")
+}
+
+model WebhookEvent {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider    String
+  /// The provider's own event id. Unique with provider — inserting this row is
+  /// how a replayed webhook is rejected, before any state changes.
+  eventId     String   @map("event_id")
+  payload     Json
+  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt DateTime? @map("processed_at") @db.Timestamptz(6)
+
+  @@unique([provider, eventId])
+  @@map("webhook_events")
+}
+
+// ---------------------------------------------------------------- reputation
+
+model Review {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId   String @map("booking_id") @db.Uuid
+  authorId    String @map("author_id") @db.Uuid
+  subjectType SubjectType @map("subject_type")
+  subjectId   String @map("subject_id") @db.Uuid
+  rating      Int
+  body        String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+  author  User    @relation(fields: [authorId], references: [id])
+
+  @@unique([bookingId, authorId, subjectType])
+  @@index([subjectType, subjectId])
+  @@map("reviews")
+}
+
+model VehicleRating {
+  vehicleId      String   @id @map("vehicle_id") @db.Uuid
+  /// Materialised by a BullMQ job every 15 minutes. Search reads this column;
+  /// it never computes a Bayesian rating inside the search query.
+  bayesianRating Float    @default(0) @map("bayesian_rating")
+  /// Sum of time-decay weights, not a raw count — see Appendix F.
+  effectiveCount Float    @default(0) @map("effective_count")
+  refreshedAt    DateTime @default(now()) @map("refreshed_at") @db.Timestamptz(6)
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@map("vehicle_ratings")
+}
+
+// ---------------------------------------------------------------- analytics
+
+model DemandSignal {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  city           String
+  vehicleType    VehicleType @map("vehicle_type")
+  /// Start of a 15-minute bucket. The D in the D/S surge ratio.
+  windowStart    DateTime @map("window_start") @db.Timestamptz(6)
+  requests       Int      @default(0)
+  availableCount Int      @default(0) @map("available_count")
+
+  @@unique([city, vehicleType, windowStart])
+  @@map("demand_signals")
+}
+
+model DailyMetric {
+  date           DateTime @db.Date
+  city           String
+  vehicleType    VehicleType @map("vehicle_type")
+  bookings       Int   @default(0)
+  revenuePaise   Int   @default(0) @map("revenue_paise")
+  bookedHours    Float @default(0) @map("booked_hours")
+  availableHours Float @default(0) @map("available_hours")
+
+  @@id([date, city, vehicleType])
+  @@map("daily_metrics")
+}
+
+// ---------------------------------------------------------------- compliance
+
+model KycDocument {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String @map("user_id") @db.Uuid
+  docType     DocType @map("doc_type")
+  /// Path inside the PRIVATE "kyc" bucket. We store the path and a status and
+  /// NOTHING ELSE: no Aadhaar number, no licence number, no raw ID number of
+  /// any kind. Storing them would make this table a breach target and would
+  /// put us under obligations we have no reason to take on.
+  storagePath String @map("storage_path")
+  status      KycStatus @default(PENDING)
+  reviewedBy  String?   @map("reviewed_by") @db.Uuid
+  reviewedAt  DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("kyc_documents")
+}
+
+model RiskFlag {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String @map("user_id") @db.Uuid
+  bookingId String? @map("booking_id") @db.Uuid
+  /// One row per TRIGGERED rule, so an admin sees why something was flagged
+  /// rather than an opaque total.
+  rule      String
+  score     Int
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  booking Booking? @relation(fields: [bookingId], references: [id])
+
+  @@index([userId, createdAt])
+  @@map("risk_flags")
+}
+
+model AuditLog {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId  String? @map("actor_id") @db.Uuid
+  action   String
+  entity   String
+  entityId String? @map("entity_id") @db.Uuid
+  before   Json?
+  after    Json?
+  at       DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([entity, entityId])
+  @@index([at])
+  @@map("audit_log")
+}
+
+// ---------------------------------------------------------------- growth
+
+model Coupon {
+  code             String @id
+  kind             CouponKind
+  /// Percent (0-100) when kind = PERCENT, paise when kind = FLAT.
+  value            Int
+  maxDiscountPaise Int?     @map("max_discount_paise")
+  validFrom        DateTime @map("valid_from") @db.Timestamptz(6)
+  validTo          DateTime @map("valid_to") @db.Timestamptz(6)
+  usageCap         Int?     @map("usage_cap")
+  usedCount        Int      @default(0) @map("used_count")
+
+  @@map("coupons")
+}
+
+model Referral {
+  code        String @id
+  referrerId  String @map("referrer_id") @db.Uuid
+  redeemedBy  String? @map("redeemed_by") @db.Uuid
+  rewardPaise Int    @default(0) @map("reward_paise")
+  redeemedAt  DateTime? @map("redeemed_at") @db.Timestamptz(6)
+
+  referrer User  @relation("referrer", fields: [referrerId], references: [id])
+  redeemer User? @relation("redeemer", fields: [redeemedBy], references: [id])
+
+  @@map("referrals")
+}
+
+/// Single-row table. The operational kill switch: an admin turns off surge or
+/// stops new bookings platform-wide without a deploy.
+model PlatformSetting {
+  id                 Int     @id @default(1)
+  bookingEnabled     Boolean @default(true) @map("booking_enabled")
+  surgeEnabled       Boolean @default(true) @map("surge_enabled")
+  maxSurgeMultiplier Float   @default(1.8) @map("max_surge_multiplier")
+  /// GST on vehicle rental services, in basis points.
+  gstRateBps         Int     @default(1800) @map("gst_rate_bps")
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_settings")
 }
