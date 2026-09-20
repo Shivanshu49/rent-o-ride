@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  # Fast feedback: nothing here needs a database, so it fails in under a minute
+  # when someone breaks a type or an architectural boundary.
+  check:
+    name: typecheck · lint · boundaries · unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace=shared
+      - name: Architectural boundaries
+        run: node scripts/check-boundaries.mjs
+      - name: Secrets must not reach the browser bundle or shared code
+        run: node scripts/check-secrets.mjs
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test --workspace=shared
+
+  # The exclusion constraint, the RLS policies and the PostGIS queries are the
+  # things most worth testing, and none of them can be tested against a mock.
+  e2e:
+    name: api e2e (real postgis + redis)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:15-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rentoride
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d rentoride"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      NODE_ENV: test
+      PORT: '3000'
+      WEB_ORIGIN: http://localhost:5173
+      DATABASE_URL: postgresql://app_role:app_role@localhost:5432/rentoride
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/rentoride
+      REDIS_URL: redis://localhost:6379
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_ANON_KEY: ci-anon
+      SUPABASE_SERVICE_ROLE_KEY: ci-service-role
+      SUPABASE_JWT_SECRET: ci-jwt-secret-at-least-32-characters-long
+      RAZORPAY_KEY_ID: rzp_test_ci
+      RAZORPAY_KEY_SECRET: ci-razorpay-secret
+      RAZORPAY_WEBHOOK_SECRET: ci-webhook-secret
+      QUOTE_SIGNING_SECRET: ci-quote-secret-at-least-32-characters-long
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace=shared
+      - name: Create the non-superuser app role that RLS applies to
+        run: psql "$DIRECT_URL" -f docker/initdb/00-roles.sql
+      - name: Apply migrations
+        run: npm run db:migrate --workspace=backend
+      - run: npm run test --workspace=backend

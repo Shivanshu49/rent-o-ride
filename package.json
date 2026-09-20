@@ -1,0 +1,33 @@
+{
+  "name": "rent-o-ride",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": [
+    "shared",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=backend & npm run dev --workspace=frontend",
+    "dev:api": "npm run dev --workspace=backend",
+    "dev:web": "npm run dev --workspace=frontend",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "node scripts/check-boundaries.mjs && node scripts/check-secrets.mjs && npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:up": "sh -c '[ -S /var/run/docker.sock ] || export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock; docker compose up -d'",
+    "db:down": "sh -c '[ -S /var/run/docker.sock ] || export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock; docker compose down'",
+    "db:logs": "sh -c '[ -S /var/run/docker.sock ] || export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock; docker compose logs -f'",
+    "db:reset": "sh -c '[ -S /var/run/docker.sock ] || export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock; docker compose down -v'"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "@swc/core@1.16.2": true,
+    "prisma@7.10.0": true,
+    "@prisma/engines@7.10.0": true,
+    "@prisma/client@7.10.0": true
+  }
+}

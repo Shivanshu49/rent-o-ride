@@ -1,0 +1,20 @@
+// Rent-O-Ride data model.
+//
+// Conventions, enforced by review and by the Phase 12 CI checks:
+//   - money is always Int, always named *_paise (rule 0.2.1: no Float money)
+//   - timestamps are always DateTime @db.Timestamptz(6), stored UTC, rendered IST
+//   - columns Prisma cannot express (tstzrange, geography) are Unsupported(...)
+//     so migrations keep them instead of dropping them; they are read via $queryRaw
+//
+// Connection URLs live in prisma.config.ts (Prisma 7 moved them out of the schema).
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  // postgis / btree_gist / pgcrypto are created by the hand-written
+  // migration in prisma/migrations, not by the postgresqlExtensions preview.
+}
