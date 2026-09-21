@@ -40,6 +40,7 @@ export const OWNERS: Readonly<Record<string, Owner>> = {
   o9: { id: 'o9', name: 'Nisha Verma',      initials: 'NV', rating: 4.9, trips: 134, since: '2024', responds: '~5 min',  verified: true },
   o10:{ id: 'o10',name: 'Sameer Qureshi',   initials: 'SQ', rating: 4.4, trips: 38,  since: '2025', responds: '~40 min', verified: false },
   o11:{ id: 'o11',name: 'Meera Joshi',      initials: 'MJ', rating: 4.6, trips: 72,  since: '2024', responds: '~18 min', verified: true },
+  o12:{ id: 'o12',name: 'Harleen Gill',     initials: 'HG', rating: 4.7, trips: 118, since: '2023', responds: '~12 min', verified: true },
 };
 
 /** The signed-in owner for the owner dashboard. */
@@ -64,6 +65,17 @@ type SeedVehicle = Omit<Vehicle, 'hourly' | 'daily' | 'deposit'> & {
 };
 
 const VEHICLES_IN_RUPEES: readonly SeedVehicle[] = [
+  {
+    id: 'v12', type: 'car', name: 'Mahindra Scorpio-N Z8L', tagline: 'Full-size SUV · 2024',
+    plate: { code: 'DL 1C', series: 'BN', num: '6612' },
+    city: 'Delhi', area: 'Vasant Kunj', distance: 2.4,
+    hourly: 319, daily: 3999, rating: 4.7, reviews: 83, trips: 118, ownerId: 'o12',
+    color: '#8A6A3C', accent: '#5A4224', map: { x: 196, y: 262 },
+    specs: { seats: 7, fuel: 'Diesel', transmission: 'Automatic', mileage: '15 kmpl', drive: '4x2', year: 2024 },
+    features: ['Electric sunroof', 'Sony 3D audio (12 speakers)', 'Ventilated front seats', 'Six airbags', 'Cruise control', 'Wireless charging'],
+    rules: 'Fuel policy: same-to-same. Outstation travel allowed; hill driving needs prior approval.',
+    deposit: 7000, booked: [[5, 7], [15, 17], [25, 26]],
+  },
   {
     id: 'v1', type: 'car', name: 'Maruti Suzuki Swift VXi', tagline: 'Hatchback · 2022',
     plate: { code: 'DL 3C', series: 'AJ', num: '4471' },
