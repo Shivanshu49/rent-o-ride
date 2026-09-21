@@ -6,6 +6,14 @@ import swc from 'unplugin-swc';
 export default defineConfig({
   test: {
     include: ['src/**/*.spec.ts', 'test/**/*.e2e-spec.ts'],
+    setupFiles: ['test/support/test-env.ts'],
+    // The e2e suites share one Postgres, one Redis and one Supabase. Running
+    // files in parallel makes the OTP counter and the users table contended
+    // between suites, which produces failures that are about the runner and
+    // not about the code.
+    fileParallelism: false,
+    hookTimeout: 30_000,
+    testTimeout: 30_000,
     environment: 'node',
     globals: true,
     root: './',

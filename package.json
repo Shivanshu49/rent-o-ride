@@ -14,11 +14,15 @@
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "node scripts/check-boundaries.mjs && node scripts/check-secrets.mjs && npm run lint --workspaces --if-present",
+    "check:bundle": "npm run build --workspace=frontend && node scripts/check-bundle.mjs",
     "test": "npm run test --workspaces --if-present",
     "db:up": "sh -c '[ -S /var/run/docker.sock ] || export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock; docker compose up -d'",
     "db:down": "sh -c '[ -S /var/run/docker.sock ] || export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock; docker compose down'",
     "db:logs": "sh -c '[ -S /var/run/docker.sock ] || export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock; docker compose logs -f'",
-    "db:reset": "sh -c '[ -S /var/run/docker.sock ] || export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock; docker compose down -v'"
+    "db:reset": "sh -c '[ -S /var/run/docker.sock ] || export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock; docker compose down -v'",
+    "supabase:start": "sh -c '[ -S /var/run/docker.sock ] || export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock; SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN=local-dev-not-real npx supabase start'",
+    "supabase:stop": "sh -c '[ -S /var/run/docker.sock ] || export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock; SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN=local-dev-not-real npx supabase stop'",
+    "supabase:status": "sh -c '[ -S /var/run/docker.sock ] || export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock; SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN=local-dev-not-real npx supabase status'"
   },
   "engines": {
     "node": ">=20"

@@ -11,11 +11,7 @@
     "strictPropertyInitialization": false,
     "isolatedModules": false,
     "verbatimModuleSyntax": false,
-    "types": ["node"],
-    "paths": {
-      "@ror/shared": ["../shared/src/index.ts"],
-      "@ror/shared/*": ["../shared/src/*"]
-    }
+    "types": ["node"]
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
   "exclude": ["node_modules", "dist"]

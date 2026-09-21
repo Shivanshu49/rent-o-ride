@@ -5,6 +5,11 @@ import { ZodValidationPipe } from 'nestjs-zod';
 import { loggerConfig } from './common/logger';
 import { AppConfig, AppConfigModule } from './config/config.module';
 import { HealthModule } from './health/health.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { KycModule } from './modules/kyc/kyc.module';
+import { OwnersModule } from './modules/owners/owners.module';
+import { PrivilegedModule } from './modules/privileged/privileged.module';
+import { StorageModule } from './modules/storage/storage.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 
@@ -18,6 +23,16 @@ import { RedisModule } from './redis/redis.module';
     }),
     PrismaModule,
     RedisModule,
+    StorageModule,
+    // The single home for writes to columns app_role cannot touch. Imported
+    // before the modules that call it, though being @Global it would resolve
+    // either way.
+    PrivilegedModule,
+    // AuthModule registers the global guards, so it must be imported before
+    // any module with routes that rely on them.
+    AuthModule,
+    OwnersModule,
+    KycModule,
     HealthModule,
   ],
   providers: [

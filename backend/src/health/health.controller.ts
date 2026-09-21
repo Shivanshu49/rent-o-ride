@@ -6,8 +6,13 @@ import {
   type HealthIndicatorResult,
 } from '@nestjs/terminus';
 import { ApiTags } from '@nestjs/swagger';
+import { Public } from '../modules/auth/decorators/public.decorator';
 import { HealthRepository } from './health.repository';
 
+// Health checks run before anything holds a token — the orchestrator has
+// none. Explicitly public, which is the only way a route becomes reachable
+// once JwtAuthGuard is global.
+@Public()
 @ApiTags('health')
 @Controller('health')
 export class HealthController {

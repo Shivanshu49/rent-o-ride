@@ -7,7 +7,6 @@ import { cleanupOpenApiDoc } from 'nestjs-zod';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
-import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
 import { REQUEST_ID_HEADER } from './common/logger';
 import { AppConfig } from './config/config.module';
 
@@ -63,9 +62,8 @@ async function bootstrap(): Promise<void> {
   app.useLogger(app.get(Logger));
   const config = app.get(AppConfig);
 
-  // Order matters: Nest runs filters last-registered-first, so the Prisma
-  // filter gets first refusal and rethrows anything it does not recognise.
-  app.useGlobalFilters(new AllExceptionsFilter(), new PrismaExceptionFilter());
+  // One filter, deliberately. See its header for why two did not work.
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   app.enableCors({
     origin: config.get('WEB_ORIGIN'), // exactly one origin. No wildcard, ever —

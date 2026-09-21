@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { ChevD, Menu, Pin, X } from './Icons';
-import { CITIES, ME_RENTER } from '../data/seed';
+import { CITIES } from '../data/seed';
+import { useAuth } from '../lib/auth';
 import { useStore } from '../state/store';
 
 const LINKS = [
@@ -15,6 +16,7 @@ export default function Nav() {
   const [open, setOpen] = useState(false);
   const [cityOpen, setCityOpen] = useState(false);
   const { city, setCity } = useStore();
+  const { actor, loading } = useAuth();
   const { pathname } = useLocation();
 
   useEffect(() => {
@@ -73,7 +75,15 @@ export default function Nav() {
             )}
           </div>
 
-          <Link to="/trips" className="avatar" title={ME_RENTER.name}>{ME_RENTER.initials}</Link>
+          {loading ? (
+            <span className="avatar" aria-hidden="true" />
+          ) : actor ? (
+            <Link to="/login" className="avatar" title={`Signed in · ${actor.role.toLowerCase()}`}>
+              {actor.role[0]}
+            </Link>
+          ) : (
+            <Link to="/login" className="btn btn-quiet">Sign in</Link>
+          )}
 
           <button className="btn btn-quiet nav-burger" onClick={() => setOpen((o) => !o)}
             aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open}>

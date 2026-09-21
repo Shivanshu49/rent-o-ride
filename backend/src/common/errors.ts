@@ -2,35 +2,13 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 
 /**
  * Every error the API returns carries a stable machine-readable code.
- * The web client switches on the code, never on the message — messages are for
- * humans and change freely.
+ *
+ * The union itself lives in @ror/shared so the web client cannot handle a code
+ * the server has stopped sending, or miss one it has started sending.
  */
-export type ApiErrorCode =
-  | 'VALIDATION_FAILED'
-  | 'UNAUTHENTICATED'
-  | 'FORBIDDEN'
-  | 'KYC_REQUIRED'
-  | 'NOT_FOUND'
-  | 'SLOT_TAKEN'
-  | 'PRICE_CHANGED'
-  | 'QUOTE_EXPIRED'
-  | 'QUOTE_INVALID'
-  | 'INVALID_TRANSITION'
-  | 'PUBLISH_REQUIREMENTS_UNMET'
-  | 'RATE_CARD_INVALID'
-  | 'BOOKING_DISABLED'
-  | 'RISK_BLOCKED'
-  | 'IDEMPOTENCY_CONFLICT'
-  | 'RATE_LIMITED'
-  | 'UPSTREAM_UNAVAILABLE'
-  | 'INTERNAL';
+export type { ApiErrorCode, ApiErrorBody } from '@ror/shared';
+import type { ApiErrorCode } from '@ror/shared';
 
-export interface ApiErrorBody {
-  code: ApiErrorCode;
-  message: string;
-  details?: unknown;
-  requestId?: string;
-}
 
 export class ApiError extends HttpException {
   constructor(

@@ -107,7 +107,10 @@ model User {
   /// to a constraint violation we can catch and re-read, not a duplicate row.
   authUserId String @unique @map("auth_user_id") @db.Uuid
   fullName   String @map("full_name")
-  phone      String @unique
+  /// Nullable: a Supabase user who signed up with email has no phone, and a
+  /// phone-OTP user has no email. At least one is always present — enforced by
+  /// users_contactable in the migration, not by making either column NOT NULL.
+  phone      String? @unique
   email      String? @unique
   role       UserRole  @default(RENTER)
   kycStatus  KycStatus @default(NONE) @map("kyc_status")

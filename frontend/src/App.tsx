@@ -4,6 +4,7 @@ import Nav from './components/Nav';
 import Footer from './components/Footer';
 import Toasts from './components/Toasts';
 import Landing from './pages/Landing';
+import Login from './pages/Login';
 import Search from './pages/Search';
 import VehicleDetail from './pages/VehicleDetail';
 import BookingDates from './pages/BookingDates';
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="/confirmation" element={<BookingConfirm />} />
           <Route path="/owner" element={<OwnerDashboard />} />
           <Route path="/trips" element={<RenterDashboard />} />
+          <Route path="/login" element={<Login />} />
           <Route path="*" element={<Landing />} />
         </Routes>
       </main>

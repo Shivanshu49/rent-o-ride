@@ -61,8 +61,30 @@ const RULES = [
   },
 ];
 
-/** PRISMA_ADMIN bypasses RLS. Only these may inject it. */
-const ADMIN_ALLOWED = [/\/modules\/(webhooks|payments|jobs|admin)\//, /\/prisma\//, /\/common\//];
+/**
+ * PRISMA_ADMIN bypasses RLS. Only these may inject it, and each is a place
+ * where there is genuinely no user context to scope by:
+ *
+ *   webhooks  — the caller is Razorpay, not a user
+ *   payments  — reconciliation runs against the provider, unattended
+ *   jobs      — BullMQ workers have no request and no actor
+ *   admin     — explicit cross-tenant operations, audit-logged
+ *   auth      — user bootstrap runs BEFORE the users row exists, so there is no
+ *               app.user_id to set. Scoped instead by the verified token: it
+ *               only ever touches the row for that auth_user_id.
+ *   privileged— the columns app_role was REVOKEd on in
+ *               20260921120000_privileged_columns. Every transition is a named
+ *               method that writes audit_log in the same transaction. This is
+ *               the escape hatch from those grants, and it is meant to be the
+ *               only one — which is why it is one small file and not a mixin.
+ *
+ * Adding to this list is a security decision. Say why, here, in the diff.
+ */
+const ADMIN_ALLOWED = [
+  /\/modules\/(webhooks|payments|jobs|admin|auth|privileged)\//,
+  /\/prisma\//,
+  /\/common\//,
+];
 
 let failures = 0;
 const report = (file, rule, message) => {
@@ -79,6 +101,24 @@ for (const rule of RULES) {
       const problem = rule.forbid(spec, file);
       if (problem) report(file, rule.name, problem);
     }
+  }
+}
+
+/**
+ * fetch() lives in exactly one file.
+ *
+ * Not a style preference. The token attachment, the single 401 refresh and the
+ * mapping of an error body to a typed ApiError all live in api-client.ts; a
+ * component that calls fetch() directly silently opts out of all three, and the
+ * symptom shows up months later as a page that logs people out at random.
+ */
+const FETCH_HOME = 'frontend/src/lib/api-client.ts';
+const FETCH_CALL = /(?<![\w.$])fetch\s*\(/;
+
+for (const file of globSync('frontend/src/**/*.{ts,tsx}', { exclude: (p) => p.includes('node_modules') })) {
+  if (file.replace(/\\/g, '/') === FETCH_HOME) continue;
+  if (FETCH_CALL.test(readFileSync(file, 'utf8'))) {
+    report(file, 'one fetch', `calls fetch() — go through ${FETCH_HOME}, which attaches the token and maps errors`);
   }
 }
 

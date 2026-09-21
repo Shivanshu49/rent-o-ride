@@ -1,5 +1,10 @@
 node_modules
 dist
+# A `tsc` run without -p drops compiled output next to the sources instead of
+# in dist/. Harmless, invisible, and it shadows the .ts at resolution time.
+shared/src/**/*.js
+shared/src/**/*.js.map
+shared/src/**/*.d.ts
 build
 .turbo
 *.log

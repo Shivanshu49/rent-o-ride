@@ -29,9 +29,22 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test --workspace=shared
+      # The source grep above cannot see a value Vite inlined at build time, or
+      # a key pulled in through a transitive import. The anon key is a
+      # credential — anything holding it can request an OTP straight from
+      # Supabase and walk past our per-phone limit — so the BUILT output is
+      # checked too.
+      - name: No Supabase credentials in the built bundle
+        run: npm run build --workspace=frontend && node scripts/check-bundle.mjs
 
-  # The exclusion constraint, the RLS policies and the PostGIS queries are the
-  # things most worth testing, and none of them can be tested against a mock.
+  # The exclusion constraint, the RLS policies, the PostGIS queries and the
+  # guards are the things most worth testing, and none of them can be tested
+  # against a mock.
+  #
+  # No Supabase here. The two suites that need a live one — real-token
+  # verification and signed KYC read URLs — skip themselves by name rather than
+  # passing quietly, so a green CI never means they were silently dropped. Run
+  # them locally with `npm run supabase:start`.
   e2e:
     name: api e2e (real postgis + redis)
     runs-on: ubuntu-latest
@@ -62,6 +75,8 @@ jobs:
       SUPABASE_URL: http://localhost:54321
       SUPABASE_ANON_KEY: ci-anon
       SUPABASE_SERVICE_ROLE_KEY: ci-service-role
+      # Unused with the default jwks strategy; kept so a job that flips to the
+      # legacy hs256 path does not fail env validation at boot.
       SUPABASE_JWT_SECRET: ci-jwt-secret-at-least-32-characters-long
       RAZORPAY_KEY_ID: rzp_test_ci
       RAZORPAY_KEY_SECRET: ci-razorpay-secret
